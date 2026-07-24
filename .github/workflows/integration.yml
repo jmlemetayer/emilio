@@ -1,0 +1,36 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  continuous-integration:
+    name: Continuous Integration
+    runs-on: windows-latest
+    steps:
+
+    - name: Check out the repo
+      uses: actions/checkout@v7.0.1
+
+    - name: Set up the rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        components: rustfmt, clippy
+
+    - name: Cache the cargo artifacts
+      uses: Swatinem/rust-cache@v2.9.2
+
+    - name: Check the source formatting
+      run: cargo fmt --all --check
+
+    - name: Check for common mistakes
+      run: cargo clippy --workspace --all-targets -- -D warnings
+
+    - name: Run the tests
+      run: cargo test --workspace
