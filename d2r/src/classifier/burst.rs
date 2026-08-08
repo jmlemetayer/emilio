@@ -52,8 +52,12 @@ fn is_named(path: &Path, name: &str) -> bool {
 /// What was written together, and what changed while it was.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(super) struct Burst {
-    /// A character save was written, whether or not its contents moved.
-    pub(super) character_written: bool,
+    /// Whose save was written, whether or not its contents moved.
+    ///
+    /// Its presence is also what says a save was written at all. If two characters are somehow
+    /// written in the same burst the last one wins, which is as good an answer as any: the game
+    /// only has one character in play.
+    pub(super) character: Option<String>,
 
     /// A character save's contents actually changed.
     pub(super) character_changed: bool,
@@ -71,10 +75,17 @@ pub(super) struct Burst {
 
 impl Burst {
     /// Folds one written path into the burst.
-    pub(super) fn add(&mut self, kind: FileKind, change: Option<SizeChange>) {
+    ///
+    /// `character` is who the file belongs to, and is only meaningful for a character save.
+    pub(super) fn add(
+        &mut self,
+        kind: FileKind,
+        character: Option<&str>,
+        change: Option<SizeChange>,
+    ) {
         match kind {
             FileKind::Character => {
-                self.character_written = true;
+                self.character = character.map(str::to_owned);
 
                 if let Some(change) = change {
                     self.character_changed = true;
@@ -137,29 +148,44 @@ mod tests {
     #[test]
     fn separates_a_write_from_a_change() {
         let mut burst = Burst::default();
-        burst.add(FileKind::Character, None);
+        burst.add(FileKind::Character, Some("Vikhyat"), None);
 
-        assert!(burst.character_written);
+        assert_eq!(burst.character.as_deref(), Some("Vikhyat"));
         assert!(!burst.character_changed);
     }
 
     #[test]
     fn accumulates_a_size_change() {
         let mut burst = Burst::default();
-        burst.add(FileKind::Character, Some(SizeChange { delta: 15 }));
+        burst.add(
+            FileKind::Character,
+            Some("Vikhyat"),
+            Some(SizeChange { delta: 15 }),
+        );
 
         assert!(burst.character_changed);
         assert_eq!(burst.size_delta, 15);
+    }
+
+    /// Files that belong to nobody must not invent a character, or a burst of pure noise would
+    /// look like a save.
+    #[test]
+    fn only_a_character_save_names_a_character() {
+        let mut burst = Burst::default();
+        burst.add(FileKind::Map, None, None);
+        burst.add(FileKind::Settings, None, None);
+
+        assert_eq!(burst.character, None);
     }
 
     /// Either file is enough on its own; the game does not always write both.
     #[test]
     fn treats_controls_and_settings_alike() {
         let mut from_controls = Burst::default();
-        from_controls.add(FileKind::Controls, None);
+        from_controls.add(FileKind::Controls, None, None);
 
         let mut from_settings = Burst::default();
-        from_settings.add(FileKind::Settings, None);
+        from_settings.add(FileKind::Settings, None, None);
 
         assert!(from_controls.leaving);
         assert!(from_settings.leaving);

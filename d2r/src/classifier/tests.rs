@@ -35,6 +35,7 @@ impl Fingerprints for FakeFiles {
     }
 }
 
+const CHARACTER: &str = "Vikhyat";
 const SAVE: &str = "Vikhyat.d2s";
 
 /// A classifier that already knows what the save looked like, as it would after priming.
@@ -68,7 +69,9 @@ fn a_rewrite_with_no_change_is_only_a_touch() {
 
     assert_eq!(
         wrote(&mut classifier, &mut files, &[SAVE], now),
-        Some(SaveEvent::Touched)
+        Some(SaveEvent::Touched {
+            character: CHARACTER.to_owned()
+        })
     );
 }
 
@@ -79,7 +82,10 @@ fn a_changed_save_of_the_same_size_reports_no_movement() {
 
     assert_eq!(
         wrote(&mut classifier, &mut files, &[SAVE], now),
-        Some(SaveEvent::Saved { size_delta: 0 })
+        Some(SaveEvent::Saved {
+            character: CHARACTER.to_owned(),
+            size_delta: 0
+        })
     );
 }
 
@@ -90,7 +96,10 @@ fn a_save_that_grew_reports_a_positive_delta() {
 
     assert_eq!(
         wrote(&mut classifier, &mut files, &[SAVE], now),
-        Some(SaveEvent::Saved { size_delta: 15 })
+        Some(SaveEvent::Saved {
+            character: CHARACTER.to_owned(),
+            size_delta: 15
+        })
     );
 }
 
@@ -101,7 +110,10 @@ fn a_save_that_shrank_reports_a_negative_delta() {
 
     assert_eq!(
         wrote(&mut classifier, &mut files, &[SAVE], now),
-        Some(SaveEvent::Saved { size_delta: -15 })
+        Some(SaveEvent::Saved {
+            character: CHARACTER.to_owned(),
+            size_delta: -15
+        })
     );
 }
 
@@ -112,7 +124,9 @@ fn settings_written_with_a_save_means_the_game_was_left() {
 
     assert_eq!(
         wrote(&mut classifier, &mut files, &[SAVE, "Settings.json"], now),
-        Some(SaveEvent::Left)
+        Some(SaveEvent::Left {
+            character: CHARACTER.to_owned()
+        })
     );
 }
 
@@ -123,7 +137,9 @@ fn a_map_written_with_a_save_means_a_game_was_entered() {
 
     assert_eq!(
         wrote(&mut classifier, &mut files, &[SAVE, "Vikhyat.ma0"], now),
-        Some(SaveEvent::Entered)
+        Some(SaveEvent::Entered {
+            character: CHARACTER.to_owned()
+        })
     );
 }
 
@@ -141,7 +157,9 @@ fn leaving_wins_when_a_map_and_the_settings_arrive_together() {
             &[SAVE, "Vikhyat.ma0", "Settings.json"],
             now
         ),
-        Some(SaveEvent::Left)
+        Some(SaveEvent::Left {
+            character: CHARACTER.to_owned()
+        })
     );
 }
 
@@ -176,7 +194,9 @@ fn a_slow_save_is_still_one_action() {
     assert_eq!(classifier.flush(now + BURST_WINDOW), None);
     assert_eq!(
         classifier.flush(now + nearly_expired + BURST_WINDOW),
-        Some(SaveEvent::Left)
+        Some(SaveEvent::Left {
+            character: CHARACTER.to_owned()
+        })
     );
 }
 
@@ -190,7 +210,10 @@ fn nothing_is_judged_before_the_window_closes() {
     assert_eq!(classifier.flush(now), None);
     assert_eq!(
         classifier.flush(now + BURST_WINDOW),
-        Some(SaveEvent::Saved { size_delta: 0 })
+        Some(SaveEvent::Saved {
+            character: CHARACTER.to_owned(),
+            size_delta: 0
+        })
     );
 }
 
@@ -201,14 +224,19 @@ fn two_separate_actions_are_judged_separately() {
     files.set(SAVE, 1015, 2);
     assert_eq!(
         wrote(&mut classifier, &mut files, &[SAVE], now),
-        Some(SaveEvent::Saved { size_delta: 15 })
+        Some(SaveEvent::Saved {
+            character: CHARACTER.to_owned(),
+            size_delta: 15
+        })
     );
 
     let later = now + Duration::from_secs(60);
     files.set(SAVE, 1015, 3);
     assert_eq!(
         wrote(&mut classifier, &mut files, &[SAVE, "Settings.json"], later),
-        Some(SaveEvent::Left)
+        Some(SaveEvent::Left {
+            character: CHARACTER.to_owned()
+        })
     );
 }
 
@@ -262,14 +290,19 @@ fn priming_is_what_makes_the_first_save_recognisable() {
     let mut unprimed = Classifier::new();
     assert_eq!(
         wrote(&mut unprimed, &mut files, &[SAVE], now),
-        Some(SaveEvent::Saved { size_delta: 0 })
+        Some(SaveEvent::Saved {
+            character: CHARACTER.to_owned(),
+            size_delta: 0
+        })
     );
 
     let mut primed = Classifier::new();
     primed.prime([PathBuf::from(SAVE)], &mut files);
     assert_eq!(
         wrote(&mut primed, &mut files, &[SAVE], now),
-        Some(SaveEvent::Touched)
+        Some(SaveEvent::Touched {
+            character: CHARACTER.to_owned()
+        })
     );
 }
 
@@ -283,7 +316,10 @@ fn a_deleted_save_is_forgotten() {
 
     assert_eq!(
         wrote(&mut classifier, &mut files, &[SAVE], now),
-        Some(SaveEvent::Saved { size_delta: 0 })
+        Some(SaveEvent::Saved {
+            character: CHARACTER.to_owned(),
+            size_delta: 0
+        })
     );
 }
 

@@ -40,29 +40,46 @@ pub const BURST_WINDOW: Duration = Duration::from_millis(300);
 const CLEAN_EXIT_WINDOW: Duration = Duration::from_secs(3);
 
 /// What the game was doing when it wrote.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// Everything that comes from a save file names the character it belongs to, taken from the
+/// filename. The two that come from the process going away do not: nothing was written, so there
+/// is nobody to name, and a consumer that wants to know whose game just ended already knows from
+/// the last event that did name one.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SaveEvent {
     /// A save file was rewritten without its contents changing.
     ///
     /// The menu does this on a mouse click, including the click that starts a game, which makes it
     /// a hint that a game may be starting, and nothing stronger. Starting a game from the keyboard
     /// produces no write at all, so an absent `Touched` means nothing either.
-    Touched,
+    Touched {
+        /// Whose save was rewritten.
+        character: String,
+    },
 
     /// A game was entered.
     ///
     /// Inferred from a map being written, which is a hint rather than a guarantee: a full
     /// system-wide trace found that entering a game writes nothing by itself.
-    Entered,
+    Entered {
+        /// Who entered.
+        character: String,
+    },
 
     /// A game was left, whether back to the menu or by quitting.
     ///
     /// The settings and control files are written when leaving and at no other time, which makes
     /// this the one boundary that can be trusted.
-    Left,
+    Left {
+        /// Who left.
+        character: String,
+    },
 
     /// The game saved during play.
     Saved {
+        /// Who saved.
+        character: String,
+
         /// How much the save grew or shrank, in bytes.
         ///
         /// Only the inventory changes the size of a save: experience, level and gold sit in
@@ -181,15 +198,15 @@ impl Classifier {
     fn gather(&mut self, path: &Path, at: Instant, fingerprints: &mut impl Fingerprints) {
         let kind = FileKind::of(path);
 
-        let change = match kind {
-            FileKind::Character => self.change_to(path, fingerprints),
-            _ => None,
+        let (character, change) = match kind {
+            FileKind::Character => (character_of(path), self.change_to(path, fingerprints)),
+            _ => (None, None),
         };
 
         let (last_write, burst) = self.pending.get_or_insert_with(|| (at, Burst::default()));
 
         *last_write = at;
-        burst.add(kind, change);
+        burst.add(kind, character.as_deref(), change);
     }
 
     /// Fingerprints a save and reports how its size moved, if its contents changed at all.
@@ -247,30 +264,43 @@ impl Classifier {
 
     /// The rules, applied to a finished burst.
     fn judge(&mut self, burst: &Burst, now: Instant) -> Option<SaveEvent> {
+        // Nothing to say about a burst that never touched a save: whatever else was written, it
+        // belongs to no character and marks no boundary.
+        let character = burst.character.clone()?;
+
         if !burst.character_changed {
             // Rewritten but identical. Real saves always move the contents, because the header
             // carries a checksum and a timestamp, so an unchanged file was never a save.
-            return burst.character_written.then_some(SaveEvent::Touched);
+            return Some(SaveEvent::Touched { character });
         }
 
         self.last_save = Some(now);
 
         if burst.leaving {
-            return Some(SaveEvent::Left);
+            return Some(SaveEvent::Left { character });
         }
 
         // A map written alongside a save, with nothing that says "leaving", means a game was
         // created rather than ended. Checked after `leaving` because both files appear together on
         // the way out, and leaving is the reliable half.
         if burst.map {
-            return Some(SaveEvent::Entered);
+            return Some(SaveEvent::Entered { character });
         }
 
         // Neither entering nor leaving, so it happened during play. Whether the size moved is
         // reported rather than judged: what a given delta means is a question about inventories,
         // and answering it needs the save parsed, not measured.
         Some(SaveEvent::Saved {
+            character,
             size_delta: burst.size_delta,
         })
     }
+}
+
+/// The character a save file belongs to.
+///
+/// The game names a save after its character, so the filename without its extension is the name,
+/// and it is the only place the name is available without parsing the save itself.
+fn character_of(path: &Path) -> Option<String> {
+    Some(path.file_stem()?.to_string_lossy().into_owned())
 }
