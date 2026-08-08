@@ -51,16 +51,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// Says what an event means in the words a player would use.
 fn describe(save: SaveEvent) -> String {
     match save {
-        SaveEvent::Touched => ".  menu click (a game may be starting)".to_owned(),
-        SaveEvent::Entered => ">  entered a game".to_owned(),
-        SaveEvent::Left => "<  left the game".to_owned(),
-        SaveEvent::Saved { size_delta: 0 } => "   saved".to_owned(),
-        SaveEvent::Saved { size_delta } if size_delta > 0 => {
-            format!("+  saved, and gained something ({size_delta:+} bytes)")
+        SaveEvent::Touched { character } => {
+            format!(".  {character}: menu click (a game may be starting)")
         }
-        SaveEvent::Saved { size_delta } => {
-            format!("-  saved, and lost something ({size_delta:+} bytes)")
+        SaveEvent::Entered { character } => format!(">  {character}: entered a game"),
+        SaveEvent::Left { character } => format!("<  {character}: left the game"),
+        SaveEvent::Saved {
+            character,
+            size_delta: 0,
+        } => format!("   {character}: saved"),
+        SaveEvent::Saved {
+            character,
+            size_delta,
+        } if size_delta > 0 => {
+            format!("+  {character}: saved, and gained something ({size_delta:+} bytes)")
         }
+        SaveEvent::Saved {
+            character,
+            size_delta,
+        } => format!("-  {character}: saved, and lost something ({size_delta:+} bytes)"),
         SaveEvent::QuitCleanly => "x  quit".to_owned(),
         SaveEvent::Crashed => "!  gone without saving (crash, or killed)".to_owned(),
     }
