@@ -7,12 +7,14 @@
 //! cargo run -- "C:\Users\<you>\Saved Games\Diablo II Resurrected"
 //! ```
 
+pub mod hotkeys;
 pub mod run;
 
 use std::path::PathBuf;
 use std::time::Duration;
 
 use d2r::sensing::{file, process};
+use hotkeys::Bindings;
 use run::{State, Update, stream};
 use tokio::sync::{broadcast, mpsc};
 
@@ -36,16 +38,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let (raw, events) = mpsc::unbounded_channel();
+    let (presses, intents) = mpsc::unbounded_channel();
     let (updates, mut watching) = broadcast::channel(UPDATE_BACKLOG);
+
+    let bindings = Bindings::default();
 
     let _processes = process::watch(raw.clone(), process::DEFAULT_POLL_INTERVAL)?;
     let _files = file::watch(raw.clone(), &directory)?;
+    let _hotkeys = hotkeys::watch(presses, bindings)?;
     drop(raw);
 
     let watched = directory.clone();
-    tokio::spawn(async move { stream::track(events, &watched, updates).await });
+    tokio::spawn(async move { stream::track(events, intents, &watched, updates).await });
 
     println!("watching {}", directory.display());
+    println!(
+        "{} starts a run, {} stops counting, {} holds the clock",
+        bindings.start, bindings.stop, bindings.pause
+    );
     println!("press ctrl-c to stop\n");
 
     loop {
