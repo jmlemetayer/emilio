@@ -133,6 +133,7 @@ dependencies = [
  "d2r",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
