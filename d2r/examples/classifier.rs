@@ -4,8 +4,10 @@
 //! cargo run -p d2r --example classifier -- "C:\Users\<you>\Saved Games\Diablo II Resurrected"
 //! ```
 //!
-//! Where [`sensing`](../examples/sensing.rs) shows the raw writes, this shows what they were taken
-//! to mean. Enter and leave a game, pick something up, quit: every line should match what you did.
+//! Where [`sensing`](../examples/sensing.rs) shows the raw writes and
+//! [`writes`](../examples/writes.rs) shows what each one did to the file behind it, this shows what
+//! they were taken to mean. Enter and leave a game, pick something up, quit: every line should
+//! match what you did.
 
 use std::path::PathBuf;
 
