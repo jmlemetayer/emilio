@@ -12,5 +12,6 @@ tokio = { version = "1.53.1", default-features = false, features = ["macros", "s
 tracing = "0.1.44"
 
 [dev-dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["clock"] }
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "signal"] }
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
