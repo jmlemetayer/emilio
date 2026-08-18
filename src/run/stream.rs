@@ -1,7 +1,8 @@
-//! Wiring the classifier to the tracker.
+//! Wiring the classifier and the player to the tracker.
 //!
 //! Everything that decides anything is elsewhere and takes its times as arguments. This owns the
-//! clock, drives the classifier's burst window, and passes what comes out to the tracker.
+//! clock, drives the classifier's burst window, and passes what comes out to the tracker, along
+//! with whatever the player asked for by hand.
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -13,6 +14,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::time::{Instant as Deadline, sleep_until};
 
 use super::{Input, Run, State, Tracker};
+use crate::hotkeys::Intent;
 
 /// Something worth telling the rest of the application about.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,47 +56,71 @@ pub enum Update {
 /// tracker up, and one that goes away entirely does not stop the tracking.
 pub async fn track(
     mut events: UnboundedReceiver<OsEvent>,
+    mut intents: UnboundedReceiver<Intent>,
     directory: &Path,
     updates: broadcast::Sender<Update>,
 ) {
     let mut fingerprints = FileFingerprints;
     let mut classifier = Classifier::new();
     let mut tracker = Tracker::new();
+    let mut listening = true;
 
     classifier.prime(existing_files(directory), &mut fingerprints);
 
     loop {
         let deadline = classifier.deadline();
 
-        let happened = tokio::select! {
+        let input = tokio::select! {
             // Prefer draining events: a write arriving now belongs to the burst being gathered,
             // and judging that burst early would split one action into two.
             biased;
 
             event = events.recv() => match event {
-                Some(event) => classifier.observe(&event, Instant::now(), &mut fingerprints),
+                Some(event) => classifier
+                    .observe(&event, Instant::now(), &mut fingerprints)
+                    .map(Input::Game),
                 None => return,
             },
 
-            () = wait_until(deadline), if deadline.is_some() => classifier.flush(Instant::now()),
+            intent = intents.recv(), if listening => match intent {
+                Some(intent) => Some(asked(intent)),
+                None => {
+                    tracing::warn!("the hotkeys have stopped, so nothing can be said by hand now");
+                    listening = false;
+                    None
+                }
+            },
+
+            () = wait_until(deadline), if deadline.is_some() => {
+                classifier.flush(Instant::now()).map(Input::Game)
+            }
         };
 
-        if let Some(happened) = happened {
-            apply(&mut tracker, happened, &updates);
+        if let Some(input) = input {
+            apply(&mut tracker, input, &updates);
         }
     }
 }
 
-/// Hands one event to the tracker and reports whatever it changed.
-fn apply(tracker: &mut Tracker, event: GameEvent, updates: &broadcast::Sender<Update>) {
+/// What the tracker calls the thing the player pressed.
+fn asked(intent: Intent) -> Input {
+    match intent {
+        Intent::Start => Input::StartRequested,
+        Intent::Stop => Input::StopRequested,
+        Intent::Pause => Input::PauseRequested,
+    }
+}
+
+/// Hands one input to the tracker and reports whatever it changed.
+fn apply(tracker: &mut Tracker, input: Input, updates: &broadcast::Sender<Update>) {
     // Taken before the tracker sees it: a save arriving as a run ends belongs to the run that is
     // ending, not the one about to start.
     let in_run = tracker.state().in_run();
-    let saved = match &event {
-        GameEvent::Saved {
+    let saved = match &input {
+        Input::Game(GameEvent::Saved {
             character,
             size_delta,
-        } if in_run => Some(Update::Saved {
+        }) if in_run => Some(Update::Saved {
             character: character.clone(),
             size_delta: *size_delta,
         }),
@@ -104,7 +130,7 @@ fn apply(tracker: &mut Tracker, event: GameEvent, updates: &broadcast::Sender<Up
     let runs_before = tracker.runs().len();
     let clock_before = tracker.started();
 
-    let moved = tracker.observe(&Input::Game(event), Instant::now());
+    let moved = tracker.observe(&input, Instant::now());
 
     if let Some(saved) = saved {
         let _ = updates.send(saved);
