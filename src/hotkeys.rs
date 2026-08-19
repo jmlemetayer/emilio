@@ -9,18 +9,14 @@
 //! only while that thread is pumping its messages. Registration and pump therefore live together
 //! on a thread of their own, and presses leave it on a channel like any other sensor's output.
 
-use std::ptr;
 use std::sync::mpsc::{Sender, channel};
 use std::thread;
 
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
 use tokio::sync::mpsc::UnboundedSender;
-use windows_sys::Win32::System::Threading::GetCurrentThreadId;
-use windows_sys::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, GetMessageW, MSG, PostThreadMessageW, WM_QUIT,
-};
 
+use crate::compat;
 use crate::errors::{Error, Result};
 
 /// What the player asked for.
@@ -86,9 +82,9 @@ pub struct HotkeyWatcher {
 
 impl Drop for HotkeyWatcher {
     fn drop(&mut self) {
-        // Nothing else wakes a thread parked in GetMessageW, and until it wakes it holds the
+        // Nothing else wakes a thread waiting for a message, and until it wakes it holds the
         // registrations, so the next binding of the same keys would be refused.
-        unsafe { PostThreadMessageW(self.thread, WM_QUIT, 0, 0) };
+        compat::post_quit(self.thread);
     }
 }
 
@@ -127,7 +123,7 @@ fn run(sender: &UnboundedSender<Intent>, bindings: Bindings, ready: &Sender<Resu
         }
     }
 
-    if ready.send(Ok(unsafe { GetCurrentThreadId() })).is_err() {
+    if ready.send(Ok(compat::current_thread())).is_err() {
         return;
     }
 
@@ -139,15 +135,12 @@ fn pump(sender: &UnboundedSender<Intent>, bindings: Bindings) {
     // Not set_event_handler: it is a OnceCell, so a restart with new bindings would go on feeding
     // the sender the first one captured.
     let presses = GlobalHotKeyEvent::receiver();
-    let mut message: MSG = unsafe { std::mem::zeroed() };
 
     // The channel is one per process and outlives any single registration, so anything already in
     // it was pressed before these bindings existed.
     while presses.try_recv().is_ok() {}
 
-    while unsafe { GetMessageW(&mut message, ptr::null_mut(), 0, 0) } > 0 {
-        unsafe { DispatchMessageW(&message) };
-
+    while compat::dispatch_next_message() {
         while let Ok(press) = presses.try_recv() {
             if press.state != HotKeyState::Pressed {
                 continue;
