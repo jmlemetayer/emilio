@@ -6,14 +6,21 @@
 //! ```text
 //! cargo run -- "C:\Users\<you>\Saved Games\Diablo II Resurrected"
 //! ```
+//!
+//! Whatever goes wrong is printed by main rather than returned from it, since returning an error
+//! prints its Debug form and the player would get a struct instead of the sentence written for
+//! them.
 
+pub mod errors;
 pub mod hotkeys;
 pub mod run;
 
 use std::path::PathBuf;
+use std::process::ExitCode;
 use std::time::Duration;
 
 use d2r::sensing::{file, process};
+use errors::Result;
 use hotkeys::Bindings;
 use run::{State, Update, stream};
 use tokio::sync::{broadcast, mpsc};
@@ -22,7 +29,7 @@ use tokio::sync::{broadcast, mpsc};
 const UPDATE_BACKLOG: usize = 64;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+async fn main() -> ExitCode {
     // Quiet unless asked. `RUST_LOG=debug` follows the decisions, `RUST_LOG=trace` adds every
     // write the game makes, and `RUST_LOG=emilio=debug,d2r=trace` mixes the two.
     tracing_subscriber::fmt()
@@ -32,6 +39,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .init();
 
+    match follow().await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("emilio: {error}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+/// Follows the game until interrupted.
+async fn follow() -> Result<()> {
     let Some(directory) = std::env::args().nth(1).map(PathBuf::from) else {
         eprintln!("usage: cargo run -- <save directory>");
         std::process::exit(2);

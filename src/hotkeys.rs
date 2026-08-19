@@ -15,34 +15,13 @@ use std::thread;
 
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
-use thiserror::Error;
 use tokio::sync::mpsc::UnboundedSender;
 use windows_sys::Win32::System::Threading::GetCurrentThreadId;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     DispatchMessageW, GetMessageW, MSG, PostThreadMessageW, WM_QUIT,
 };
 
-/// Anything that can stop the hotkeys being registered at all.
-///
-/// One binding the operating system refuses is not in here: the others still work, so it is
-/// reported as a warning and the app carries on without it.
-#[derive(Debug, Error)]
-pub enum HotkeyError {
-    /// The thread that owns the registrations could not be started.
-    #[error(transparent)]
-    Io(#[from] std::io::Error),
-
-    /// The operating system refused the hidden window the registrations hang from.
-    #[error(transparent)]
-    Manager(#[from] global_hotkey::Error),
-
-    /// The thread stopped before saying whether it had got that far.
-    #[error("the hotkey thread stopped before it was ready")]
-    Stopped,
-}
-
-/// A [`Result`](std::result::Result) carrying a [`HotkeyError`].
-pub type Result<T> = std::result::Result<T, HotkeyError>;
+use crate::errors::{Error, Result};
 
 /// What the player asked for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,7 +100,7 @@ pub fn watch(sender: UnboundedSender<Intent>, bindings: Bindings) -> Result<Hotk
         .name("emilio-hotkeys".to_owned())
         .spawn(move || run(&sender, bindings, &ready))?;
 
-    let thread = started.recv().map_err(|_| HotkeyError::Stopped)??;
+    let thread = started.recv().map_err(|_| Error::HotkeysStopped)??;
 
     Ok(HotkeyWatcher { thread })
 }
