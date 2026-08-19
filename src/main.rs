@@ -11,6 +11,12 @@
 //! prints its Debug form and the player would get a struct instead of the sentence written for
 //! them.
 
+#![deny(unsafe_code)]
+
+/// Talking to Windows, which is the only thing allowed to be unsafe.
+#[allow(unsafe_code)]
+pub mod compat;
+
 pub mod errors;
 pub mod hotkeys;
 pub mod run;
