@@ -14,6 +14,7 @@ use std::thread;
 
 use global_hotkey::hotkey::{Code, HotKey, Modifiers};
 use global_hotkey::{GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState};
+use serde::{Deserialize, Deserializer, Serialize};
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::compat;
@@ -33,16 +34,42 @@ pub enum Intent {
 }
 
 /// Which keys mean what.
-#[derive(Debug, Clone, Copy)]
+///
+/// Written to the config file as the strings the player typed, since a hotkey reads back from its
+/// own `Display` form: `start = "alt+KeyQ"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Bindings {
     /// Starts a run, or restarts the one under way.
+    #[serde(deserialize_with = "binding")]
     pub start: HotKey,
 
     /// Stops counting runs.
+    #[serde(deserialize_with = "binding")]
     pub stop: HotKey,
 
     /// Holds the clock, or releases it.
+    #[serde(deserialize_with = "binding")]
     pub pause: HotKey,
+}
+
+/// Reads one binding out of the settings file, saying what can be typed if it will not parse.
+///
+/// The parsing is global-hotkey's, but not the complaint: its own is addressed to somebody who has
+/// found a missing key rather than to somebody who has mistyped one, and it asks them to report it
+/// to a project this application does not use.
+fn binding<'de, D>(deserializer: D) -> std::result::Result<HotKey, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let text = String::deserialize(deserializer)?;
+
+    text.parse().map_err(|_| {
+        serde::de::Error::custom(format!(
+            "{text} is not a key combination: write any of alt, ctrl, shift and super first, \
+             then one key, as in alt+Q or ctrl+shift+F1"
+        ))
+    })
 }
 
 impl Default for Bindings {

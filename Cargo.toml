@@ -8,9 +8,12 @@ edition = "2024"
 
 [dependencies]
 d2r = { version = "0.1.0", path = "d2r" }
-global-hotkey = "0.8.0"
+directories = "6.0.0"
+global-hotkey = { version = "0.8.0", features = ["serde"] }
+serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.20"
 tokio = { version = "1.53.1", default-features = false, features = ["sync", "time", "macros", "rt", "rt-multi-thread", "signal"] }
+toml = "1.1.4"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
-windows-sys = { version = "0.59.0", features = ["Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_Foundation"] }
+windows-sys = { version = "0.59.0", features = ["Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_Foundation", "Win32_UI_Shell", "Win32_System_Com"] }
