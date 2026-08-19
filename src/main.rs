@@ -4,12 +4,18 @@
 //! which is enough to check the tracking against real play.
 //!
 //! ```text
-//! cargo run -- "C:\Users\<you>\Saved Games\Diablo II Resurrected"
+//! cargo run
+//! cargo run -- "D:\somewhere\else"
 //! ```
 //!
+//! The save directory and the hotkeys come from the settings file, which is written with sensible
+//! defaults the first time. An argument overrides the directory for one run without touching it.
+//!
 //! Whatever goes wrong is printed by main rather than returned from it, since returning an error
-//! prints its Debug form and the player would get a struct instead of the sentence written for
-//! them.
+//! prints its Debug form and a settings file that will not parse would arrive as a struct with the
+//! whole file quoted inside. A missing save directory is caught here rather than left to
+//! file::watch to fail on, because the answer to it is a setting and the player has to be told
+//! which one.
 
 #![deny(unsafe_code)]
 
@@ -20,15 +26,16 @@ pub mod compat;
 pub mod errors;
 pub mod hotkeys;
 pub mod run;
+pub mod settings;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
 use d2r::sensing::{file, process};
-use errors::Result;
-use hotkeys::Bindings;
+use errors::{Error, Result};
 use run::{State, Update, stream};
+use settings::Settings;
 use tokio::sync::{broadcast, mpsc};
 
 /// How many updates a subscriber may fall behind before it starts missing them.
@@ -56,16 +63,25 @@ async fn main() -> ExitCode {
 
 /// Follows the game until interrupted.
 async fn follow() -> Result<()> {
-    let Some(directory) = std::env::args().nth(1).map(PathBuf::from) else {
-        eprintln!("usage: cargo run -- <save directory>");
-        std::process::exit(2);
-    };
+    let configured = settings::path()?;
+    let settings = Settings::read_or_create(&configured)?;
+
+    let directory = std::env::args()
+        .nth(1)
+        .map_or(settings.saves, PathBuf::from);
+
+    if !directory.is_dir() {
+        return Err(Error::NoSaves {
+            saves: directory,
+            settings: configured,
+        });
+    }
 
     let (raw, events) = mpsc::unbounded_channel();
     let (presses, intents) = mpsc::unbounded_channel();
     let (updates, mut watching) = broadcast::channel(UPDATE_BACKLOG);
 
-    let bindings = Bindings::default();
+    let bindings = settings.hotkeys;
 
     let _processes = process::watch(raw.clone(), process::DEFAULT_POLL_INTERVAL)?;
     let _files = file::watch(raw.clone(), &directory)?;
@@ -76,6 +92,7 @@ async fn follow() -> Result<()> {
     tokio::spawn(async move { stream::track(events, intents, &watched, updates).await });
 
     println!("watching {}", directory.display());
+    println!("settings in {}", configured.display());
     println!(
         "{} starts a run, {} stops counting, {} holds the clock",
         bindings.start, bindings.stop, bindings.pause
